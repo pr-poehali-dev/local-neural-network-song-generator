@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import { MusicEngine, type Genre as AudioGenre } from "@/lib/audioEngine";
 import { generateSong, type SongLyrics } from "@/lib/lyricsEngine";
 import { saveTrack, type SavedTrack } from "@/lib/tracksStore";
+import KaraokePlayer from "@/components/KaraokePlayer";
 
 const genres = [
   { id: "electronic", label: "Электроника", icon: "Zap", color: "#00e5ff" },
@@ -30,7 +31,10 @@ interface GeneratorProps {
   onGoHistory?: () => void;
 }
 
+type Tab = "generate" | "karaoke";
+
 export default function Generator({ onGoHistory }: GeneratorProps) {
+  const [tab, setTab] = useState<Tab>("generate");
   const [selectedGenre, setSelectedGenre] = useState("electronic");
   const [selectedMood, setSelectedMood] = useState("Энергичное");
   const [tempo, setTempo] = useState(128);
@@ -173,6 +177,40 @@ export default function Generator({ onGoHistory }: GeneratorProps) {
         <p className="text-muted-foreground">Настрой параметры — движок сгенерирует музыку и текст прямо в браузере</p>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-2 mb-7 fade-in-up">
+        {([
+          { id: "generate", label: "Генератор", icon: "Sparkles" },
+          { id: "karaoke", label: "Вокал / Караоке", icon: "Mic" },
+        ] as { id: Tab; label: string; icon: string }[]).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border ${
+              tab === t.id
+                ? "text-white border-purple-500/50"
+                : "text-white/40 border-white/5 hover:text-white/60 hover:border-white/10 glass"
+            }`}
+            style={tab === t.id ? { background: "rgba(168,85,247,0.15)" } : {}}
+          >
+            <Icon name={t.icon} fallback="Circle" size={15}
+              style={{ color: tab === t.id ? "#a855f7" : undefined }} />
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Karaoke tab */}
+      {tab === "karaoke" && (
+        <KaraokePlayer
+          genre={selectedGenre}
+          mood={selectedMood}
+          tempo={tempo}
+          genreColor={genreColor}
+        />
+      )}
+
+      {tab === "generate" && <>
       <div className="grid md:grid-cols-3 gap-6">
         {/* Left panel */}
         <div className="md:col-span-2 space-y-6">
@@ -462,6 +500,7 @@ export default function Generator({ onGoHistory }: GeneratorProps) {
           </button>
         )}
       </div>
+      </>}
     </div>
   );
 }
