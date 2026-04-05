@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
+import { MusicEngine, type Genre as AudioGenre } from "@/lib/audioEngine";
+import { generateSong, type SongLyrics } from "@/lib/lyricsEngine";
 
 const genres = [
   { id: "electronic", label: "Электроника", icon: "Zap", color: "#00e5ff" },
@@ -14,35 +16,126 @@ const genres = [
 
 const moods = ["Энергичное", "Расслабленное", "Меланхоличное", "Романтичное", "Эпическое", "Мистическое"];
 
+const generatingSteps = [
+  "Анализирую жанр и настроение...",
+  "Подбираю аккордовую прогрессию...",
+  "Генерирую мелодическую линию...",
+  "Строю ритмическую структуру...",
+  "Создаю текст песни...",
+  "Финальная обработка...",
+];
+
 export default function Generator() {
   const [selectedGenre, setSelectedGenre] = useState("electronic");
   const [selectedMood, setSelectedMood] = useState("Энергичное");
   const [tempo, setTempo] = useState(128);
-  const [duration, setDuration] = useState(3);
+  const [duration, setDuration] = useState(1);
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playProgress, setPlayProgress] = useState(0);
+  const [song, setSong] = useState<SongLyrics | null>(null);
+  const [showLyrics, setShowLyrics] = useState(false);
+  const [currentBeat, setCurrentBeat] = useState(0);
 
-  const handleGenerate = () => {
+  const engineRef = useRef<MusicEngine | null>(null);
+  const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const genreColor = genres.find(g => g.id === selectedGenre)?.color || "#a855f7";
+
+  const handleGenerate = useCallback(() => {
+    if (engineRef.current) {
+      engineRef.current.stop();
+      engineRef.current = null;
+    }
     setIsGenerating(true);
     setGenerated(false);
+    setIsPlaying(false);
+    setPlayProgress(0);
     setProgress(0);
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
+    setStepIndex(0);
+    setShowLyrics(false);
+
+    // Simulate generation steps
+    let step = 0;
+    const stepInterval = setInterval(() => {
+      step++;
+      setStepIndex(Math.min(step, generatingSteps.length - 1));
+      setProgress(Math.min((step / generatingSteps.length) * 100, 95));
+      if (step >= generatingSteps.length) {
+        clearInterval(stepInterval);
+        // Generate lyrics
+        const lyrics = generateSong(selectedGenre as AudioGenre, selectedMood, tempo, prompt);
+        setSong(lyrics);
+        setProgress(100);
+        setTimeout(() => {
           setIsGenerating(false);
           setGenerated(true);
-          return 100;
-        }
-        return prev + Math.random() * 8 + 2;
-      });
-    }, 200);
+        }, 400);
+      }
+    }, 500);
+  }, [selectedGenre, selectedMood, tempo, prompt]);
+
+  const handlePlay = useCallback(() => {
+    if (isPlaying) {
+      engineRef.current?.stop();
+      engineRef.current = null;
+      setIsPlaying(false);
+      setCurrentBeat(0);
+      setPlayProgress(0);
+      if (progressInterval.current) clearInterval(progressInterval.current);
+      return;
+    }
+
+    const engine = new MusicEngine(selectedGenre as AudioGenre, tempo);
+    engineRef.current = engine;
+
+    engine.onBeat = (beat, total) => {
+      setCurrentBeat(beat);
+      setPlayProgress(beat / total);
+    };
+
+    engine.onStop = () => {
+      setIsPlaying(false);
+      setCurrentBeat(0);
+      setPlayProgress(0);
+    };
+
+    engine.play(duration);
+    setIsPlaying(true);
+  }, [isPlaying, selectedGenre, tempo, duration]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      engineRef.current?.stop();
+      if (progressInterval.current) clearInterval(progressInterval.current);
+    };
+  }, []);
+
+  // Stop engine when genre/tempo changes
+  useEffect(() => {
+    if (isPlaying) {
+      engineRef.current?.stop();
+      engineRef.current = null;
+      setIsPlaying(false);
+      setPlayProgress(0);
+    }
+  }, [selectedGenre, tempo]);
+
+  const formatTime = (progress: number) => {
+    const totalSec = duration * 60;
+    const current = Math.floor(progress * totalSec);
+    const m = Math.floor(current / 60);
+    const s = current % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 fade-in-up">
+    <div className="max-w-4xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="mb-10 fade-in-up fade-in-up-1">
         <div className="flex items-center gap-3 mb-2">
@@ -52,7 +145,7 @@ export default function Generator() {
         <h1 className="font-oswald text-4xl md:text-5xl font-bold text-white mb-3">
           Создай свой <span className="gradient-text">трек</span>
         </h1>
-        <p className="text-muted-foreground">Опиши настроение — нейросеть сгенерирует уникальную музыку за секунды</p>
+        <p className="text-muted-foreground">Настрой параметры — движок сгенерирует музыку и текст прямо в браузере</p>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6">
@@ -64,22 +157,22 @@ export default function Generator() {
             <label className="text-xs text-muted-foreground uppercase tracking-widest mb-3 block">Описание трека</label>
             <textarea
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => setPrompt(e.target.value.slice(0, 200))}
               placeholder="Напр.: энергичный трек для утренней пробежки с синтами и мощным басом..."
-              className="w-full bg-transparent text-white placeholder-muted-foreground/50 resize-none outline-none text-sm leading-relaxed h-24"
+              className="w-full bg-transparent text-white placeholder-muted-foreground/50 resize-none outline-none text-sm leading-relaxed h-20"
             />
             <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/5">
-              <span className="text-xs text-muted-foreground/50">{prompt.length}/200 символов</span>
+              <span className="text-xs text-muted-foreground/50">{prompt.length}/200</span>
               <div className="flex gap-1">
                 {["🎸", "🎹", "🥁", "🎺", "🎻"].map((e, i) => (
-                  <button key={i} onClick={() => setPrompt(p => p + " " + e)}
+                  <button key={i} onClick={() => setPrompt(p => (p + " " + e).slice(0, 200))}
                     className="text-base hover:scale-125 transition-transform">{e}</button>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Genre Selection */}
+          {/* Genre */}
           <div className="fade-in-up fade-in-up-3">
             <label className="text-xs text-muted-foreground uppercase tracking-widest mb-3 block">Жанр</label>
             <div className="grid grid-cols-4 gap-2">
@@ -140,99 +233,199 @@ export default function Generator() {
               <label className="text-xs text-muted-foreground uppercase tracking-widest">Длительность</label>
               <span className="text-cyan-400 font-oswald font-bold text-lg">{duration} мин</span>
             </div>
-            <input type="range" min={1} max={10} value={duration} onChange={e => setDuration(+e.target.value)} />
+            <input type="range" min={1} max={5} value={duration} onChange={e => setDuration(+e.target.value)} />
             <div className="flex justify-between text-xs text-muted-foreground/40 mt-1">
-              <span>1 мин</span><span>10 мин</span>
+              <span>1 мин</span><span>5 мин</span>
             </div>
           </div>
 
-          {/* Waveform preview */}
+          {/* Live waveform */}
           <div className="glass rounded-2xl p-5">
             <label className="text-xs text-muted-foreground uppercase tracking-widest mb-4 block">Визуализация</label>
-            <div className="flex items-end justify-center gap-1 h-12">
-              {Array.from({ length: 24 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="wave-bar w-1.5 rounded-full"
-                  style={{
-                    background: i % 3 === 0 ? '#a855f7' : i % 3 === 1 ? '#00e5ff' : '#f472b6',
-                    height: `${Math.random() * 70 + 20}%`,
-                    animationDelay: `${i * 0.05}s`,
-                    animationPlayState: isGenerating || generated ? 'running' : 'paused',
-                  }}
-                />
-              ))}
+            <div className="flex items-end justify-center gap-0.5 h-12">
+              {Array.from({ length: 32 }).map((_, i) => {
+                const isBeat = isPlaying && (currentBeat % 32 === i);
+                return (
+                  <div
+                    key={i}
+                    className="rounded-full flex-1 transition-all duration-75"
+                    style={{
+                      background: isBeat
+                        ? "#ffffff"
+                        : i % 3 === 0 ? "#a855f7" : i % 3 === 1 ? "#00e5ff" : "#f472b6",
+                      height: `${isPlaying
+                        ? Math.random() * 70 + 20
+                        : isGenerating
+                        ? Math.random() * 40 + 10
+                        : 20}%`,
+                      opacity: isPlaying || isGenerating ? 1 : 0.3,
+                      animationPlayState: isPlaying || isGenerating ? "running" : "paused",
+                      animation: (isPlaying || isGenerating) ? `wave-bar ${0.8 + i * 0.03}s ease-in-out infinite` : "none",
+                      animationDelay: `${i * 0.04}s`,
+                    }}
+                  />
+                );
+              })}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Generate button */}
-      <div className="mt-8 fade-in-up fade-in-up-5">
-        {isGenerating ? (
-          <div className="glass rounded-2xl p-6">
+      {/* Bottom section */}
+      <div className="mt-8 space-y-4">
+        {/* Generating state */}
+        {isGenerating && (
+          <div className="glass rounded-2xl p-6 border border-purple-500/20 fade-in-up">
             <div className="flex items-center gap-4 mb-4">
-              <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full spin-slow" />
-              <div>
+              <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full spin-slow flex-shrink-0" />
+              <div className="flex-1">
                 <p className="text-white font-medium">Генерирую трек...</p>
-                <p className="text-sm text-muted-foreground">{Math.round(Math.min(progress, 100))}% завершено</p>
+                <p className="text-sm text-purple-300/70 mt-0.5">{generatingSteps[stepIndex]}</p>
               </div>
+              <span className="font-oswald text-xl font-bold text-purple-400">{Math.round(progress)}%</span>
             </div>
             <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
               <div
-                className="h-full progress-glow rounded-full transition-all duration-300"
-                style={{
-                  width: `${Math.min(progress, 100)}%`,
-                  background: 'linear-gradient(90deg, #a855f7, #00e5ff)'
-                }}
+                className="h-full rounded-full transition-all duration-500 progress-glow"
+                style={{ width: `${progress}%`, background: "linear-gradient(90deg, #a855f7, #00e5ff)" }}
               />
             </div>
-          </div>
-        ) : generated ? (
-          <div className="glass rounded-2xl p-6 border border-purple-500/30 neon-border">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center relative pulse-ring">
-                  <Icon name="Music" size={18} className="text-purple-400" />
-                </div>
-                <div>
-                  <p className="text-white font-semibold">Трек готов!</p>
-                  <p className="text-xs text-muted-foreground">{genres.find(g => g.id === selectedGenre)?.label} · {selectedMood} · {tempo} BPM · {duration} мин</p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
-                  <Icon name="Heart" size={16} className="text-pink-400" />
-                </button>
-                <button className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
-                  <Icon name="Share2" size={16} className="text-cyan-400" />
-                </button>
-                <button className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
-                  <Icon name="Download" size={16} className="text-white/60" />
-                </button>
-              </div>
-            </div>
-            {/* Fake player */}
-            <div className="flex items-center gap-4">
-              <button className="w-10 h-10 rounded-full generating-btn flex items-center justify-center flex-shrink-0">
-                <Icon name="Play" size={16} className="text-white ml-0.5" />
-              </button>
-              <div className="flex-1">
-                <div className="h-1 bg-white/10 rounded-full">
-                  <div className="h-full w-1/3 bg-gradient-to-r from-purple-500 to-cyan-400 rounded-full" />
-                </div>
-              </div>
-              <span className="text-xs text-muted-foreground">1:{(duration * 20).toString().padStart(2, '0')} / {duration}:00</span>
+            <div className="flex gap-1 mt-3">
+              {generatingSteps.map((_, i) => (
+                <div key={i} className={`flex-1 h-0.5 rounded-full transition-all duration-300 ${i <= stepIndex ? "bg-purple-500" : "bg-white/10"}`} />
+              ))}
             </div>
           </div>
-        ) : (
+        )}
+
+        {/* Generated player */}
+        {generated && song && (
+          <div className="glass rounded-2xl border fade-in-up" style={{ borderColor: `${genreColor}30` }}>
+            {/* Track header */}
+            <div className="p-5 border-b border-white/5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center relative pulse-ring"
+                    style={{ background: `${genreColor}20`, border: `1px solid ${genreColor}40` }}
+                  >
+                    <Icon name="Music2" size={20} style={{ color: genreColor }} />
+                  </div>
+                  <div>
+                    <h3 className="font-oswald text-lg font-bold text-white">{song.title}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {genres.find(g => g.id === selectedGenre)?.label} · {selectedMood} · {tempo} BPM · {duration} мин
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowLyrics(!showLyrics)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-all ${
+                      showLyrics
+                        ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                        : "bg-white/5 border-white/10 text-white/50 hover:text-white/70"
+                    }`}
+                  >
+                    <Icon name="FileText" size={12} />
+                    Текст
+                  </button>
+                  <button className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors">
+                    <Icon name="Heart" size={14} className="text-pink-400" />
+                  </button>
+                  <button className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors">
+                    <Icon name="Share2" size={14} className="text-cyan-400" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Player controls */}
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handlePlay}
+                  className="w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-105"
+                  style={{
+                    background: isPlaying
+                      ? `${genreColor}30`
+                      : `linear-gradient(135deg, #a855f7, #00e5ff)`,
+                    boxShadow: isPlaying ? `0 0 20px ${genreColor}50` : "0 0 20px rgba(168,85,247,0.4)",
+                  }}
+                >
+                  <Icon name={isPlaying ? "Pause" : "Play"} size={18} className="text-white ml-0.5" />
+                </button>
+
+                {/* Progress bar */}
+                <div className="flex-1">
+                  <div className="h-1.5 bg-white/10 rounded-full cursor-pointer relative overflow-hidden">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full transition-all duration-100"
+                      style={{
+                        width: `${playProgress * 100}%`,
+                        background: `linear-gradient(90deg, ${genreColor}, #a855f7)`,
+                        boxShadow: `0 0 8px ${genreColor}60`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground/50 mt-1">
+                    <span>{formatTime(playProgress)}</span>
+                    <span>{duration}:00</span>
+                  </div>
+                </div>
+
+                {isPlaying && (
+                  <div className="flex items-end gap-0.5 h-5">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-1 rounded-full wave-bar"
+                        style={{ background: genreColor, height: "100%", animationDelay: `${i * 0.12}s` }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Lyrics */}
+            {showLyrics && (
+              <div className="p-5 max-h-80 overflow-y-auto">
+                <div className="space-y-5">
+                  {song.sections.map((section, si) => (
+                    <div key={si}>
+                      <p className="text-xs uppercase tracking-widest mb-2 font-medium" style={{ color: genreColor }}>
+                        {section.label}
+                      </p>
+                      <div className="space-y-1">
+                        {section.lines.map((line, li) => (
+                          <p key={li} className="text-white/80 text-sm leading-relaxed">{line}</p>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Generate button */}
+        {!isGenerating && (
           <button
             onClick={handleGenerate}
-            className="w-full py-4 rounded-2xl generating-btn text-white font-oswald font-semibold text-lg tracking-wider uppercase transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(168,85,247,0.4)] active:scale-[0.98]"
+            className="w-full py-4 rounded-2xl text-white font-oswald font-semibold text-lg tracking-wider uppercase transition-all hover:scale-[1.01] active:scale-[0.99]"
+            style={{
+              background: generated
+                ? "linear-gradient(135deg, rgba(168,85,247,0.3), rgba(0,229,255,0.2))"
+                : "linear-gradient(270deg, #a855f7, #00e5ff, #f472b6, #a855f7)",
+              backgroundSize: "300% 300%",
+              animation: generated ? "none" : "generating 2s ease infinite",
+              border: generated ? "1px solid rgba(168,85,247,0.4)" : "none",
+              boxShadow: generated ? "none" : "0 0 30px rgba(168,85,247,0.3)",
+            }}
           >
             <span className="flex items-center justify-center gap-3">
-              <Icon name="Sparkles" size={20} />
-              Сгенерировать трек
+              <Icon name={generated ? "RefreshCw" : "Sparkles"} size={20} />
+              {generated ? "Сгенерировать ещё раз" : "Сгенерировать трек"}
             </span>
           </button>
         )}
