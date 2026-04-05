@@ -14,13 +14,13 @@ export default function Index() {
 
   const renderPage = () => {
     switch (page) {
-      case "generator": return <Generator />;
-      case "history": return <History />;
+      case "generator": return <Generator onGoHistory={() => setPage("history")} />;
+      case "history": return <History onGoGenerator={() => setPage("generator")} />;
       case "settings": return <Settings />;
       case "gallery": return <Gallery />;
       case "help": return <Help />;
       case "about": return <About />;
-      default: return <Generator />;
+      default: return <Generator onGoHistory={() => setPage("history")} />;
     }
   };
 

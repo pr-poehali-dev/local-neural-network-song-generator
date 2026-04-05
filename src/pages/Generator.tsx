@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import { MusicEngine, type Genre as AudioGenre } from "@/lib/audioEngine";
 import { generateSong, type SongLyrics } from "@/lib/lyricsEngine";
+import { saveTrack, type SavedTrack } from "@/lib/tracksStore";
 
 const genres = [
   { id: "electronic", label: "Электроника", icon: "Zap", color: "#00e5ff" },
@@ -25,7 +26,11 @@ const generatingSteps = [
   "Финальная обработка...",
 ];
 
-export default function Generator() {
+interface GeneratorProps {
+  onGoHistory?: () => void;
+}
+
+export default function Generator({ onGoHistory }: GeneratorProps) {
   const [selectedGenre, setSelectedGenre] = useState("electronic");
   const [selectedMood, setSelectedMood] = useState("Энергичное");
   const [tempo, setTempo] = useState(128);
@@ -40,6 +45,7 @@ export default function Generator() {
   const [song, setSong] = useState<SongLyrics | null>(null);
   const [showLyrics, setShowLyrics] = useState(false);
   const [currentBeat, setCurrentBeat] = useState(0);
+  const [savedId, setSavedId] = useState<string | null>(null);
 
   const engineRef = useRef<MusicEngine | null>(null);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -70,7 +76,26 @@ export default function Generator() {
         // Generate lyrics
         const lyrics = generateSong(selectedGenre as AudioGenre, selectedMood, tempo, prompt);
         setSong(lyrics);
+        setSavedId(null);
         setProgress(100);
+        // Автосохранение
+        const newId = `track_${Date.now()}`;
+        const track: SavedTrack = {
+          id: newId,
+          title: lyrics.title,
+          genre: selectedGenre,
+          genreLabel: genres.find(g => g.id === selectedGenre)?.label || "",
+          genreColor: genres.find(g => g.id === selectedGenre)?.color || "#a855f7",
+          mood: selectedMood,
+          tempo,
+          duration,
+          createdAt: Date.now(),
+          lyrics,
+          plays: 0,
+          liked: false,
+        };
+        saveTrack(track);
+        setSavedId(newId);
         setTimeout(() => {
           setIsGenerating(false);
           setGenerated(true);
@@ -318,7 +343,7 @@ export default function Generator() {
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap justify-end">
                   <button
                     onClick={() => setShowLyrics(!showLyrics)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-all ${
@@ -330,11 +355,18 @@ export default function Generator() {
                     <Icon name="FileText" size={12} />
                     Текст
                   </button>
+                  {/* Кнопка «В историю» */}
+                  {savedId ? (
+                    <button
+                      onClick={() => { onGoHistory?.(); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border bg-green-500/15 border-green-500/40 text-green-300 hover:bg-green-500/25 transition-all"
+                    >
+                      <Icon name="CheckCircle" size={12} />
+                      В истории
+                    </button>
+                  ) : null}
                   <button className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors">
                     <Icon name="Heart" size={14} className="text-pink-400" />
-                  </button>
-                  <button className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors">
-                    <Icon name="Share2" size={14} className="text-cyan-400" />
                   </button>
                 </div>
               </div>
