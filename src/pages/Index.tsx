@@ -1,14 +1,32 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState } from "react";
+import Layout from "@/components/Layout";
+import Generator from "@/pages/Generator";
+import History from "@/pages/History";
+import Settings from "@/pages/Settings";
+import Gallery from "@/pages/Gallery";
+import Help from "@/pages/Help";
+import About from "@/pages/About";
 
-const Index = () => {
+type Page = "generator" | "history" | "settings" | "gallery" | "help" | "about";
+
+export default function Index() {
+  const [page, setPage] = useState<Page>("generator");
+
+  const renderPage = () => {
+    switch (page) {
+      case "generator": return <Generator />;
+      case "history": return <History />;
+      case "settings": return <Settings />;
+      case "gallery": return <Gallery />;
+      case "help": return <Help />;
+      case "about": return <About />;
+      default: return <Generator />;
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4 color-black text-black">Добро пожаловать!</h1>
-        <p className="text-xl text-gray-600">тут будет отображаться ваш проект</p>
-      </div>
-    </div>
+    <Layout page={page} onNav={setPage}>
+      {renderPage()}
+    </Layout>
   );
-};
-
-export default Index;
+}
